@@ -41,44 +41,6 @@ function initDb() {
     CREATE INDEX IF NOT EXISTS idx_skill_source ON Skill(sourceType);
   `);
 
-  // 迁移：确保 content 字段可以为 NULL（移除可能存在的 NOT NULL 约束）
-  try {
-    // 检查 content 是否有 NOT NULL 约束
-    const tableInfo = db.pragma("table_info('Skill')") as Array<{name: string, notnull: number}>;
-    const contentColumn = tableInfo.find(col => col.name === 'content');
-    if (contentColumn && contentColumn.notnull === 1) {
-      // 如果有 NOT NULL 约束，需要重建表
-      db.exec(`
-        PRAGMA foreign_keys=off;
-        BEGIN TRANSACTION;
-        ALTER TABLE Skill RENAME TO Skill_old;
-        CREATE TABLE Skill (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL,
-          description TEXT,
-          content TEXT,
-          author TEXT,
-          version TEXT DEFAULT '1.0.0',
-          tags TEXT,
-          category TEXT,
-          usageCount INTEGER DEFAULT 0,
-          sourceType TEXT DEFAULT 'manual',
-          gitUrl TEXT,
-          gitPath TEXT,
-          filePath TEXT,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-        INSERT INTO Skill SELECT * FROM Skill_old;
-        DROP TABLE Skill_old;
-        COMMIT;
-        PRAGMA foreign_keys=on;
-      `);
-    }
-  } catch (e) {
-    console.error('Migration error:', e);
-  }
-
   // 迁移：为已存在的表添加 filePath 列（如果不存在）
   try {
     db.exec('ALTER TABLE Skill ADD COLUMN filePath TEXT');
@@ -144,26 +106,44 @@ export const SkillDB = {
 
   create: (input: CreateSkillInput): Skill => {
     const db = getDb();
-    const result = db
-      .prepare(
-        `INSERT INTO Skill (name, description, content, author, version, tags, category, sourceType, gitUrl, gitPath, filePath)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        input.name,
-        input.description || null,
-        input.content || null,
-        input.author || null,
-        input.version || '1.0.0',
-        input.tags ? JSON.stringify(input.tags) : null,
-        input.category || null,
-        input.sourceType || 'manual',
-        input.gitUrl || null,
-        input.gitPath || null,
-        input.filePath || null
-      );
+    
+    console.log('[DB] 开始创建技能:', input.name);
+    
+    try {
+      const result = db
+        .prepare(
+          `INSERT INTO Skill (name, description, content, author, version, tags, category, sourceType, gitUrl, gitPath, filePath)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          input.name,
+          input.description || null,
+          input.content || null,
+          input.author || null,
+          input.version || '1.0.0',
+          input.tags ? JSON.stringify(input.tags) : null,
+          input.category || null,
+          input.sourceType || 'manual',
+          input.gitUrl || null,
+          input.gitPath || null,
+          input.filePath || null
+        );
       
-    return SkillDB.getById(result.lastInsertRowid as number)!;
+      console.log('[DB] INSERT 成功, lastInsertRowid:', result.lastInsertRowid);
+      
+      const skill = SkillDB.getById(result.lastInsertRowid as number);
+      
+      if (!skill) {
+        console.error('[DB] 警告: INSERT 成功但无法检索到新创建的记录');
+      } else {
+        console.log('[DB] 检索到新创建的记录:', skill.name);
+      }
+      
+      return skill!;
+    } catch (error) {
+      console.error('[DB] INSERT 失败:', error);
+      throw error;
+    }
   },
 
   update: (id: number, input: UpdateSkillInput): Skill | null => {

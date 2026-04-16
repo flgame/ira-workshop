@@ -19,19 +19,24 @@ export async function POST(request: NextRequest) {
 
     for (const dirPath of skillDirs) {
       try {
+        console.log(`[Git Import] 开始导入: ${dirPath}`);
+        
         // 导入整个 skill 目录到本地 skills/ 下
         const skillInfo = await GitHelper.importSkillDir(url, dirPath, branch);
 
         if (!skillInfo) {
+          console.error(`[Git Import] 失败: 目录不存在或缺少 SKILL.md - ${dirPath}`);
           errors.push({ path: dirPath, error: 'Skill directory not found or missing SKILL.md' });
           continue;
         }
+
+        console.log(`[Git Import] 目录导入成功: ${skillInfo.name}`);
 
         // 创建数据库记录，元数据来自 SKILL.md frontmatter
         const input: CreateSkillInput = {
           name: skillInfo.name,
           description: skillInfo.description || `从 ${url} 导入`,
-          content: skillInfo.skillMdContent,
+          content: skillInfo.skillMdBody || undefined,  // 保存 SKILL.md 的正文内容
           author: skillInfo.author,
           version: skillInfo.version,
           tags: skillInfo.tags,
@@ -42,9 +47,15 @@ export async function POST(request: NextRequest) {
           filePath: skillInfo.dirPath,
         };
 
+        console.log(`[Git Import] 准备写入数据库:`, input);
+
         const skill = SkillDB.create(input);
+        
+        console.log(`[Git Import] 数据库写入成功:`, skill);
+        
         importedSkills.push(skill);
       } catch (error) {
+        console.error(`[Git Import] 异常:`, error);
         errors.push({
           path: dirPath,
           error: error instanceof Error ? error.message : 'Unknown error',
